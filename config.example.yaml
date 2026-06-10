@@ -1,0 +1,41 @@
+providers:
+  echo_cli:
+    type: cli
+    executable: cat
+    args: []
+    input: stdin
+    timeout: 30
+    max_concurrency: 2
+    parser: text
+
+roles:
+  planner:
+    provider: echo_cli
+    permissions: read_only
+    output_format: report
+    retry_policy: standard
+  cheap:
+    provider: echo_cli
+    permissions: read_only
+    output_format: report
+    retry_policy: standard
+
+projects:
+  example_project:
+    root: "/path/to/your/project"
+    default_workspace_mode: readonly
+    allowed_roles: [planner, cheap]
+    allow_inplace: false
+
+worker:
+  global_concurrency: 3
+  heartbeat_interval: 15
+  lease_seconds: 3600
+  timezone: "Asia/Ho_Chi_Minh"
+
+doctor:
+  min_ok_providers: 1
+
+env_profiles:
+  echo_cli:
+    allow_env: []

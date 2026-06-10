@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest -v
+        # Note: Provider/sandbox integration tests are macOS-only.
+        # This CI runs the hermetic test suite (mocked providers, in-memory DB).
+
+      - name: Check for warnings
+        run: |
+          uv run pytest -v 2>&1 | grep -i "warning" && exit 1 || true
+
+      - name: Upload coverage (future: codecov)
+        # Placeholder for coverage reporting once needed
+        run: |
+          uv run pytest --cov=herder --cov-report=term-missing 2>&1 | tail -20
