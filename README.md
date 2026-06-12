@@ -76,7 +76,7 @@ uv run herder result <job_id>
 
 ## Concepts
 
-**Providers.** Adapters for different AI backends: CLI (claude, codex, gemini, ollama, …) or Ollama HTTP. Config: executable, args, input mode (stdin, arg, env), parser (text, json, codex_exec_json).
+**Providers.** Adapters for different AI backends: CLI (claude, codex, gemini, ollama, …) or Ollama HTTP. Config: executable, args, input mode (`stdin`, `arg`, `arg_or_stdin`, `file`), parser (`text`, `json:<key>`). Herder works with **any CLI that has a non-interactive/print mode** — adding one is a config change, not code. See [docs/providers.md](docs/providers.md) for the full field reference and a copy-paste cookbook (Aider, Cline, Kimi, Cursor, Kiro, …).
 
 **Roles.** Map to a provider + permissions + output format + retry policy. Examples: planner (read_only), coder (worktree_write, code output), reviewer (read_only).
 
