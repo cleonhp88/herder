@@ -2,8 +2,8 @@
 import json
 import pytest
 
-from herder.config import Config, ConfigError
-from herder.registry import resolve
+from herder.config import Config, ConfigError, PERMISSION_LEVELS
+from herder.registry import resolve, _PERM
 
 
 def _cfg(**proj):
@@ -76,3 +76,58 @@ def test_untrusted_preset_denies_secrets_and_network():
     assert perms["network"] is False
     assert perms["filesystem"] == "read_only"
     assert perms["shell_tools"] is False
+
+
+# ---------------------------------------------------------------------------
+# Tier 1: Pre-call capability check in registry.resolve()
+# ---------------------------------------------------------------------------
+
+def _cfg_with_supports(perm: str, supports: list[str]) -> Config:
+    """Build a Config where the provider's supports list is set.
+
+    Args:
+        perm: Role permissions value.
+        supports: List of permission levels the provider declares it supports.
+
+    Returns:
+        Constructed Config object.
+    """
+    return Config(**{
+        "providers": {
+            "echo": {
+                "type": "cli",
+                "executable": "cat",
+                "input": "stdin",
+                "supports": supports,
+            }
+        },
+        "roles": {"r": {"provider": "echo", "permissions": perm}},
+        "projects": {"p": {"root": "/tmp/x", "allowed_roles": ["r"]}},
+        "worker": {"global_concurrency": 1},
+    })
+
+
+def test_resolve_supports_empty_allows_any_permission():
+    """Empty supports list means no restriction — any permission level is accepted."""
+    cfg = _cfg_with_supports("inplace_write", [])
+    r = resolve(cfg, role="r", project="p")
+    assert r["provider"] == "echo"
+
+
+def test_resolve_permission_in_supports_is_accepted():
+    """Role permission in provider supports list must resolve without error."""
+    cfg = _cfg_with_supports("read_only", ["read_only", "worktree_write"])
+    r = resolve(cfg, role="r", project="p")
+    assert r["provider"] == "echo"
+
+
+def test_resolve_permission_not_in_supports_raises():
+    """Role permission absent from non-empty provider supports must raise ConfigError."""
+    cfg = _cfg_with_supports("inplace_write", ["read_only", "worktree_write"])
+    with pytest.raises(ConfigError, match="inplace_write"):
+        resolve(cfg, role="r", project="p")
+
+
+def test_perm_keys_match_permission_levels():
+    """_PERM keys must exactly equal PERMISSION_LEVELS — guards silent privilege drift."""
+    assert set(_PERM.keys()) == PERMISSION_LEVELS

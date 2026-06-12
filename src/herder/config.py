@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Literal
 from pathlib import Path
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 class ConfigError(Exception):
@@ -10,7 +10,16 @@ class ConfigError(Exception):
     pass
 
 
+# Single source of truth for valid permission levels.
+# registry.py's _PERM dict is keyed by exactly these values.
+PERMISSION_LEVELS: frozenset[str] = frozenset(
+    {"read_only", "worktree_write", "inplace_write", "untrusted"}
+)
+
+
 class Provider(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     type: Literal["cli", "api", "ollama"]
     executable: str | None = None
     args: list[str] = Field(default_factory=list)
@@ -23,9 +32,16 @@ class Provider(BaseModel):
     max_concurrency: int = 1
     parser: str = "text"
     cost_key: str | None = None
+    # --- Capability manifest (Tier 1) ---
+    output_format: Literal["text", "json", "stream-json"] = "text"
+    supports: list[str] = Field(default_factory=list)
+    cost_hint: str | None = None
+    auth_env: str | None = None
 
 
 class Role(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     provider: str
     system_prompt_file: str | None = None
     default_timeout: int | None = None
@@ -36,6 +52,8 @@ class Role(BaseModel):
 
 
 class Project(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     root: str
     default_workspace_mode: Literal["readonly", "worktree", "inplace"] = "readonly"
     allowed_roles: list[str] = Field(default_factory=list)
@@ -44,6 +62,8 @@ class Project(BaseModel):
 
 
 class Worker(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     global_concurrency: int = 3
     heartbeat_interval: int = 15
     lease_seconds: int = 3600
@@ -51,10 +71,14 @@ class Worker(BaseModel):
 
 
 class EnvProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     allow_env: list[str] = Field(default_factory=list)
 
 
 class Doctor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     min_ok_providers: int = 1
 
 
@@ -67,12 +91,16 @@ class Budget(BaseModel):
 
     Dedup collapses identical still-running submissions by (role, project, kind, prompt_hash).
     """
+    model_config = ConfigDict(extra="forbid")
+
     max_active_jobs: int = 100
     max_jobs_per_day: int = 500
     dedup_active: bool = True
 
 
 class Schedule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     cron: str
     project: str
@@ -83,6 +111,8 @@ class Schedule(BaseModel):
 
 
 class Retention(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     keep_done_days: int = 30
     keep_failed_days: int = 90
     keep_logs_days: int = 30
@@ -90,6 +120,8 @@ class Retention(BaseModel):
 
 
 class Config(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     providers: dict[str, Provider] = Field(default_factory=dict)
     roles: dict[str, Role] = Field(default_factory=dict)
     projects: dict[str, Project] = Field(default_factory=dict)
@@ -124,6 +156,24 @@ class Config(BaseModel):
                 raise ConfigError(f"provider '{pname}' (cli) missing executable")
             if prov.type == "ollama" and (not prov.base_url or not prov.model):
                 raise ConfigError(f"provider '{pname}' (ollama) needs base_url and model")
+            # Validate supports list against the canonical permission levels.
+            for level in prov.supports:
+                if level not in PERMISSION_LEVELS:
+                    raise ConfigError(
+                        f"provider '{pname}' has invalid supports value '{level}'; "
+                        f"valid levels: {sorted(PERMISSION_LEVELS)}"
+                    )
+            # Validate auth_env reachability when an env_profile is set.
+            # Rule fires only when BOTH auth_env and env_profile are declared.
+            # auth_env without env_profile is informational only (doctor display).
+            if prov.auth_env is not None and prov.env_profile is not None:
+                profile = self.env_profiles.get(prov.env_profile)
+                if profile is not None and prov.auth_env not in profile.allow_env:
+                    raise ConfigError(
+                        f"provider '{pname}': auth_env '{prov.auth_env}' is not in "
+                        f"env_profile '{prov.env_profile}'.allow_env — the credential "
+                        f"would be stripped by env minimization"
+                    )
         seen_ids: set[str] = set()
         for sch in self.schedules:
             if sch.id in seen_ids:
@@ -133,6 +183,18 @@ class Config(BaseModel):
                 raise ConfigError(f"schedule '{sch.id}' references unknown project '{sch.project}'")
             if sch.role not in self.roles:
                 raise ConfigError(f"schedule '{sch.id}' references unknown role '{sch.role}'")
+
+
+def format_supports(supports: list[str]) -> str:
+    """Return a human-readable, sorted representation of a provider's supports list.
+
+    Args:
+        supports: List of permission level strings.
+
+    Returns:
+        Comma-separated sorted values, or "*" when the list is empty.
+    """
+    return ", ".join(sorted(supports)) if supports else "*"
 
 
 def load_config(path: str) -> Config:

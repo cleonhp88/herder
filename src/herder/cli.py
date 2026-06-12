@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from herder.config import ConfigError, load_config
+from herder.config import ConfigError, format_supports, load_config
 from herder.db.store import Store, StoreError
 from herder.errors import BudgetError
 from herder.ids import new_job_id
@@ -46,10 +46,24 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     report = run_doctor(cfg, Store.open(), Path.cwd(), min_ok=args.min_ok,
                         config_path=args.config)
 
-    # Print results: one line per provider
+    # Print results: one line per provider (with manifest info when available)
     for h in report.rows:
         flag = "PASS" if h.noninteractive_status == "ok" else h.noninteractive_status.upper()
-        print(f"{h.provider:14} {flag:12} auth={h.auth_status:8} {h.latency_ms}ms")
+        base = f"{h.provider:14} {flag:12} auth={h.auth_status:8} {h.latency_ms}ms"
+        prov = cfg.providers.get(h.provider)
+        if prov is not None:
+            supports_str = format_supports(prov.supports)
+            cost_str = prov.cost_hint if prov.cost_hint is not None else "-"
+            auth_env_str = prov.auth_env if prov.auth_env is not None else "on-disk"
+            manifest = (
+                f"  fmt={prov.output_format}"
+                f" supports={supports_str}"
+                f" cost={cost_str}"
+                f" auth_env={auth_env_str}"
+            )
+        else:
+            manifest = ""
+        print(base + manifest)
 
     # Print summary
     print(f"\n{report.ok_count}/{len(report.rows)} ok (need {report.min_ok})")

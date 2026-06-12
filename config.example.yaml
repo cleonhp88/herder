@@ -7,6 +7,15 @@ providers:
     timeout: 30
     max_concurrency: 2
     parser: text
+    # --- Capability manifest (optional, used by doctor and registry) ---
+    # output_format: text       # One of: text, json, stream-json. Default: text.
+    # supports: []              # Permission levels this provider can serve.
+    #                           # Empty list (default) = unrestricted.
+    #                           # Valid values: read_only, worktree_write, inplace_write, untrusted.
+    # cost_hint: null           # Free-form cost label shown by doctor, e.g. "$0", "plan", "metered".
+    # auth_env: null            # Name of the env var holding this provider's credential.
+    #                           # None = on-disk or no auth required.
+    #                           # When env_profile is also set, auth_env must appear in allow_env.
 
 roles:
   planner:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from herder.config import Config, ConfigError
+from herder.config import Config, ConfigError, PERMISSION_LEVELS, format_supports
 
 
 _PERM = {
@@ -60,15 +60,30 @@ def resolve(cfg: Config, *, role: str, project: str) -> dict:
     if proj.allowed_roles and role not in proj.allowed_roles:
         raise ConfigError(f"role '{role}' not allowed in project '{project}'")
 
-    perms = dict(_PERM.get(cfg.roles[role].permissions, _PERM["read_only"]))
+    role_obj = cfg.roles[role]
+    perms = dict(_PERM.get(role_obj.permissions, _PERM["read_only"]))
     mode = proj.default_workspace_mode
     if mode == "inplace":
         if not proj.allow_inplace:
             raise ConfigError(f"inplace not allowed for project '{project}'")
         perms["require_confirm"] = True
 
+    provider_name = cfg.resolve_provider_for_role(role)
+    provider_obj = cfg.providers[provider_name]
+
+    # Pre-call capability check: if the provider declares a non-empty supports
+    # list, the role's permission level must be one of the declared values.
+    # Empty supports means the provider imposes no restriction.
+    if provider_obj.supports and role_obj.permissions not in provider_obj.supports:
+        supports_str = format_supports(provider_obj.supports)
+        raise ConfigError(
+            f"provider '{provider_name}' does not support permission "
+            f"'{role_obj.permissions}' required by role '{role}' "
+            f"(supports: {supports_str})"
+        )
+
     return {
-        "provider": cfg.resolve_provider_for_role(role),
+        "provider": provider_name,
         "cwd": proj.root,
         "workspace_mode": mode,
         "permissions": json.dumps(perms),

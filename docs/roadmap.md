@@ -13,16 +13,16 @@ Ranked by leverage / effort. Ship Tier 1 before Tier 2 before Tier 3.
 The point: onboarding a new agent becomes *edit config + run `doctor`*, with the
 supervisor able to reject impossible jobs before spending a run.
 
-- [ ] **Capability manifest on `Provider`.** Add declarative fields:
+- [x] **Capability manifest on `Provider`.** Add declarative fields:
   `output_format` (`text` | `json` | `stream-json`), `supports` (e.g.
   `[read_only, write, plan]`), `cost_hint`, and an explicit `auth_env` reference.
   Source pattern: LiteLLM `model_info`, VS Code `contributes`.
-- [ ] **`extra="forbid"` on all config models** (`Provider`, `Role`, `Project`, …).
+- [x] **`extra="forbid"` on all config models** (`Provider`, `Role`, `Project`, …).
   Today a typo'd key is silently swallowed; with a capability manifest that is
   dangerous (false confidence). Fail loud on unknown keys.
-- [ ] **Pre-call capability check.** Before dispatch, assert the job's required mode
+- [x] **Pre-call capability check.** Before dispatch, assert the job's required mode
   ∈ `provider.supports`; reject early with a clear error instead of a failed run.
-- [ ] **`doctor` reports the manifest**, not just liveness — show declared
+- [x] **`doctor` reports the manifest**, not just liveness — show declared
   output_format / supports / auth status per provider so users see what they wired.
 
 *Risk: low. Manifests must be kept honest — `doctor` smoke-tests are the guard.*
