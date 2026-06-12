@@ -87,6 +87,31 @@ If the smoke test fails (auth, no models, hangs), the provider is not usable yet
 
 ---
 
+## ACP providers (protocol mode)
+
+For agents that speak the [Agent Client Protocol](https://agentclientprotocol.com)
+(JSON-RPC over stdio), `type: acp` replaces stdout-scraping with a structured
+session: streamed message chunks, typed stop reasons, and a headless permission
+policy (read-only jobs deny all tool requests; write jobs allow with
+least-privilege `allow_once`). Requires the optional extra:
+`uv pip install herder[acp]` (or `agent-client-protocol>=0.10.1`).
+
+```yaml
+providers:
+  # opencode over ACP (verified live)
+  opencode_acp: { type: acp, executable: /path/to/opencode, args: ["acp"], timeout: 120 }
+
+  # Gemini CLI over ACP
+  gemini_acp:   { type: acp, executable: gemini, args: ["--acp"], timeout: 120 }
+
+  # Claude Code via the Zed ACP adapter
+  claude_acp:   { type: acp, executable: npx, args: ["@zed-industries/claude-code-acp"], timeout: 120 }
+```
+
+Notes: ACP providers cannot run `untrusted` roles (no seatbelt sandbox wrap in
+v1 — config load rejects that combination). `herder doctor` probes ACP
+providers with a real `initialize` handshake.
+
 ## Tested providers
 
 These are verified working with the generic adapter. Copy, adjust paths/models.

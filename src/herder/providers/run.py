@@ -23,12 +23,14 @@ def execute(
     heartbeat: Callable[[], None] | None = None,
     heartbeat_interval: float = 30.0,
     sandbox_profile: str | None = None,
+    allow_tools: bool = False,
 ) -> Result:
     """Route execution by provider type. Single entry point for worker and doctor.
 
     Dispatches to the appropriate provider implementation based on provider.type:
     - "cli": delegates to cli_generic.run()
     - "ollama": delegates to ollama_http.run() (ignores cancel_check and heartbeat in v1)
+    - "acp": delegates to acp_client.run() (requires optional dep agent-client-protocol)
     - other: raises ValueError
 
     Args:
@@ -44,6 +46,8 @@ def execute(
         heartbeat: Optional callable to renew job lease periodically (CLI only in v1).
         heartbeat_interval: Seconds between heartbeat calls (default 30.0).
         sandbox_profile: Optional SBPL profile string for seatbelt sandbox confinement (CLI only).
+        allow_tools: Whether to allow ACP agent tool-use requests (ACP only).
+            Should be True when perms.filesystem != "read_only".
 
     Returns:
         Result with status, output, and metadata.
@@ -71,5 +75,25 @@ def execute(
         # YAGNI: HTTP-based cancellation and heartbeat for Ollama is v2+
         # Ollama runs over HTTP so sandbox is not relevant
         return ollama_http.run(provider, prompt, timeout=timeout)
+
+    if provider.type == "acp":
+        # Lazy import: acp_client imports the acp SDK, which is an optional dependency.
+        # Importing here keeps the module importable without acp installed.
+        from herder.providers import acp_client
+        return acp_client.run(
+            provider,
+            prompt,
+            cwd=cwd,
+            run_dir=run_dir,
+            env=env,
+            timeout=timeout,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            cancel_check=cancel_check,
+            heartbeat=heartbeat,
+            heartbeat_interval=heartbeat_interval,
+            sandbox_profile=sandbox_profile,
+            allow_tools=allow_tools,
+        )
 
     raise ValueError(f"unsupported provider type: {provider.type}")

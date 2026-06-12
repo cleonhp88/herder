@@ -48,14 +48,14 @@ that another backend could serve.
 The point: for agents that speak ACP, replace N bespoke JSON parsers with one
 drift-resistant client that gets streaming, permissions, and session/cost for free.
 
-- [ ] **`protocol: acp` provider mode.** A JSON-RPC-2.0-over-stdio client:
+- [x] **`protocol: acp` provider mode.** A JSON-RPC-2.0-over-stdio client:
   `initialize` (capability negotiation) → `session/new` → `session/prompt`, consume
   `session/update` stream, answer `session/request_permission`, support
   `session/cancel` and `session/load` (resume).
-- [ ] **Wire the native speakers first:** Gemini (`gemini --experimental-acp`),
+- [x] **Wire the native speakers first:** Gemini (`gemini --experimental-acp`),
   opencode (`opencode acp`), Claude (`claude-code-acp` adapter). Validate against
   the generic path's output for parity.
-- [ ] **Keep it opt-in and non-load-bearing.** A provider without `mode: acp` uses
+- [x] **Keep it opt-in and non-load-bearing.** A provider without `mode: acp` uses
   the generic `cli` path unchanged. ACP must never become a hard dependency
   (protocol is v1; remote transport is WIP; Claude is adapter-only).
 

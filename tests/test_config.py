@@ -607,3 +607,48 @@ def test_resolve_providers_for_role_unknown_raises(tmp_path):
     cfg = load_config(str(c))
     with pytest.raises(ConfigError):
         cfg.resolve_providers_for_role("ghost")
+
+
+# ---------------------------------------------------------------------------
+# Tier 3: ACP provider type
+# ---------------------------------------------------------------------------
+
+def test_acp_provider_type_accepted(tmp_path):
+    """Provider with type='acp' and an executable must be accepted."""
+    c = tmp_path / "acp.yaml"
+    c.write_text(
+        "providers:\n"
+        "  myagent: {type: acp, executable: python, args: [stub.py, echo]}\n"
+        "roles: {r: {provider: myagent}}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    cfg = load_config(str(c))
+    assert cfg.providers["myagent"].type == "acp"
+    assert cfg.providers["myagent"].executable == "python"
+
+
+def test_acp_provider_without_executable_raises(tmp_path):
+    """Provider with type='acp' and no executable must raise ConfigError."""
+    c = tmp_path / "acp_no_exe.yaml"
+    c.write_text(
+        "providers:\n"
+        "  myagent: {type: acp}\n"
+        "roles: {r: {provider: myagent}}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError, match="executable"):
+        load_config(str(c))
+
+
+def test_acp_untrusted_role_raises(tmp_path):
+    """ACP provider in an untrusted role must raise ConfigError (no sandbox support)."""
+    c = tmp_path / "acp_untrusted.yaml"
+    c.write_text(
+        "providers:\n"
+        "  myagent: {type: acp, executable: python}\n"
+        "roles:\n"
+        "  sandboxed: {provider: myagent, permissions: untrusted}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError, match="untrusted"):
+        load_config(str(c))

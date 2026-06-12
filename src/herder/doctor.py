@@ -50,6 +50,106 @@ class ProviderHealth:
     last_probe_at: str
 
 
+def _probe_acp(
+    name: str,
+    p: Provider,
+    *,
+    env: dict,
+    cwd: Path,
+    timestamp: str,
+    probe_timeout: float = 10.0,
+) -> ProviderHealth:
+    """Probe an ACP provider via the initialize handshake.
+
+    Spawns the agent process, sends initialize, and closes immediately.
+    A successful initialize response means the provider is reachable and
+    speaks the ACP protocol.
+
+    Args:
+        name: Provider name (for reporting).
+        p: Provider configuration.
+        env: Environment variables.
+        cwd: Working directory.
+        timestamp: ISO8601 probe timestamp.
+        probe_timeout: Timeout for the entire probe in seconds (default 10).
+
+    Returns:
+        ProviderHealth with noninteractive_status "ok" on success, "fail" otherwise.
+    """
+    try:
+        import acp
+    except ImportError:
+        return ProviderHealth(
+            name,
+            "fail",
+            "unknown",
+            None,
+            "acp package not installed; run: uv pip install 'herder[acp]'",
+            timestamp,
+        )
+
+    if not p.executable:
+        return ProviderHealth(name, "fail", "missing", None, "no executable configured", timestamp)
+
+    import asyncio
+
+    async def _do_probe() -> tuple[str, str, int | None, str | None]:
+        """Run the minimal ACP handshake.
+
+        Returns:
+            Tuple of (noninteractive_status, auth_status, latency_ms, error_sample).
+        """
+        from herder.providers.acp_client import _HeadlessClient
+
+        start = datetime.now(timezone.utc)
+        client = _HeadlessClient(allow_tools=False)
+        try:
+            args = list(p.args) if p.args else []
+            async with acp.spawn_agent_process(
+                client,
+                p.executable,
+                *args,
+                env=env,
+                cwd=cwd,
+            ) as (conn, _process):
+                await conn.initialize(acp.PROTOCOL_VERSION)
+                latency_ms = int(
+                    (datetime.now(timezone.utc) - start).total_seconds() * 1000
+                )
+                return "ok", "unknown", latency_ms, None
+        except FileNotFoundError:
+            return "fail", "missing", None, "binary not found"
+        except Exception as exc:  # noqa: BLE001
+            return "fail", "unknown", None, str(exc)[:200]
+
+    start_wall = datetime.now(timezone.utc)
+    try:
+        status, auth, latency_ms, error_sample = asyncio.run(
+            asyncio.wait_for(_do_probe(), timeout=probe_timeout)
+        )
+    except asyncio.TimeoutError:
+        latency_ms = int((datetime.now(timezone.utc) - start_wall).total_seconds() * 1000)
+        return ProviderHealth(
+            name,
+            "tty_required",
+            "unknown",
+            latency_ms,
+            "timed out during initialize",
+            timestamp,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ProviderHealth(
+            name,
+            "fail",
+            "unknown",
+            None,
+            str(exc)[:200],
+            timestamp,
+        )
+
+    return ProviderHealth(name, status, auth, latency_ms, error_sample, timestamp)
+
+
 def _looks_prompted(text: str) -> bool:
     """Check if output contains login/auth prompts."""
     low = text.lower()
@@ -111,6 +211,10 @@ def probe_provider(
             (res.output or "")[:200] or None,
             timestamp,
         )
+
+    # Probe ACP providers via the real protocol (initialize handshake under a short timeout)
+    if p.type == "acp":
+        return _probe_acp(name, p, env=env, cwd=cwd, timestamp=timestamp)
 
     # Non-CLI providers always report unknown
     if p.type != "cli" or not p.executable:

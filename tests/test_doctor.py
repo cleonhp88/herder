@@ -148,3 +148,57 @@ def test_integrity_no_warns_when_secure(tmp_path: Path) -> None:
     cfg = load_config(str(c))
     warns = integrity_warnings(cfg, str(c))
     assert len(warns) == 0, f"Expected no warnings for secure files, got: {warns}"
+
+
+# ---------------------------------------------------------------------------
+# Tier 3: ACP provider probing
+# ---------------------------------------------------------------------------
+
+def test_probe_acp_ok(tmp_path: Path) -> None:
+    """ACP provider probe with echo stub should return noninteractive_status='ok'.
+
+    Uses the real stub agent so this is a true integration test of the wire protocol.
+    """
+    import sys
+    from pathlib import Path as _Path
+    pytest = __import__("pytest")
+    acp = pytest.importorskip("acp")  # skip if acp not installed
+
+    stub = str(_Path(__file__).parent / "acp_stub_agent.py")
+    p = Provider(type="acp", executable=sys.executable, args=[stub, "echo"], timeout=15)
+    h = probe_provider("stub_acp", p, env={}, cwd=tmp_path)
+    assert h.noninteractive_status == "ok", f"Expected ok, got: {h.noninteractive_status!r}  sample={h.error_sample!r}"
+    assert h.auth_status == "unknown"
+    assert h.latency_ms is not None
+
+
+def test_probe_acp_missing_binary(tmp_path: Path) -> None:
+    """ACP provider probe with missing executable should return fail/missing."""
+    pytest = __import__("pytest")
+    pytest.importorskip("acp")  # skip if acp not installed
+
+    p = Provider(type="acp", executable="/no/such/acp/agent", timeout=5)
+    h = probe_provider("acp_missing", p, env={}, cwd=tmp_path)
+    assert h.noninteractive_status == "fail"
+    assert h.auth_status == "missing"
+
+
+def test_probe_acp_no_acp_package(tmp_path: Path, monkeypatch) -> None:
+    """ACP probe with acp package missing should return fail with helpful message."""
+    import sys
+    import importlib
+
+    # Hide the acp module so the probe sees it as not installed
+    original = sys.modules.get("acp")
+    sys.modules["acp"] = None  # type: ignore[assignment]
+    try:
+        p = Provider(type="acp", executable="python", args=["stub.py", "echo"], timeout=5)
+        h = probe_provider("acp_no_pkg", p, env={}, cwd=tmp_path)
+        assert h.noninteractive_status == "fail"
+        assert h.error_sample is not None
+        assert "acp" in h.error_sample.lower()
+    finally:
+        if original is None:
+            del sys.modules["acp"]
+        else:
+            sys.modules["acp"] = original

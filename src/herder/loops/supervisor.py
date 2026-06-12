@@ -90,6 +90,10 @@ def execute_job(cfg: Config, store: Store, job, worker_id: str) -> str:
             )
         sandbox_profile = build_profile(allow_write=[cwd], deny_network=True)
 
+    # ACP permission policy: allow tool-use only for non-read-only jobs.
+    # For cli/ollama providers this kwarg is silently ignored by execute().
+    allow_tools = perms.filesystem != "read_only"
+
     res = execute(
         provider,
         prompt,
@@ -103,6 +107,7 @@ def execute_job(cfg: Config, store: Store, job, worker_id: str) -> str:
         heartbeat=_renew,
         heartbeat_interval=HEARTBEAT_INTERVAL,
         sandbox_profile=sandbox_profile,
+        allow_tools=allow_tools,
     )
 
     # Compute duration from result timestamps

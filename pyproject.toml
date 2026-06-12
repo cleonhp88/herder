@@ -11,6 +11,9 @@ dependencies = [
     "pyyaml>=6.0.3",
 ]
 
+[project.optional-dependencies]
+acp = ["agent-client-protocol>=0.10.1"]
+
 [project.scripts]
 herder = "herder.cli:main"
 

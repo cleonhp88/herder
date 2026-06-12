@@ -20,7 +20,7 @@ PERMISSION_LEVELS: frozenset[str] = frozenset(
 class Provider(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["cli", "api", "ollama"]
+    type: Literal["cli", "api", "ollama", "acp"]
     executable: str | None = None
     args: list[str] = Field(default_factory=list)
     input: Literal["stdin", "arg", "file", "arg_or_stdin"] = "stdin"
@@ -271,11 +271,24 @@ class Config(BaseModel):
                     raise ConfigError(
                         f"project '{pname}' references unknown role '{r}'"
                     )
+        # Guard: ACP providers must not be assigned to untrusted roles (no sandbox support)
+        for rname, role in self.roles.items():
+            if role.permissions == "untrusted":
+                for pname in role.providers:
+                    prov = self.providers.get(pname)
+                    if prov is not None and prov.type == "acp":
+                        raise ConfigError(
+                            f"ACP providers cannot run untrusted jobs (no sandbox support): "
+                            f"role '{rname}' has permissions='untrusted' but includes "
+                            f"ACP provider '{pname}'"
+                        )
         for pname, prov in self.providers.items():
             if prov.type == "cli" and not prov.executable:
                 raise ConfigError(f"provider '{pname}' (cli) missing executable")
             if prov.type == "ollama" and (not prov.base_url or not prov.model):
                 raise ConfigError(f"provider '{pname}' (ollama) needs base_url and model")
+            if prov.type == "acp" and not prov.executable:
+                raise ConfigError(f"provider '{pname}' (acp) missing executable")
             # Validate supports list against the canonical permission levels.
             for level in prov.supports:
                 if level not in PERMISSION_LEVELS:
