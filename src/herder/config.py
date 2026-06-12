@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Literal
 from pathlib import Path
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 class ConfigError(Exception):
@@ -39,16 +39,77 @@ class Provider(BaseModel):
     auth_env: str | None = None
 
 
-class Role(BaseModel):
+class Cooldown(BaseModel):
+    """Cooldown policy for a provider within a role.
+
+    Controls how many consecutive failures within a time window cause a provider
+    to be skipped in favour of the next provider in the role's providers list.
+
+    Failure counts are GLOBAL per provider: a provider failing for one role is
+    considered failing for all roles — intentional, because a broken backend is
+    broken for everyone. Cooldown only has effect for roles with ≥2 providers.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    provider: str
+    allowed_fails: int = Field(default=3, gt=0)
+    window_seconds: int = Field(default=300, gt=0)
+
+
+class Role(BaseModel):
+    """Role configuration mapping a name to one or more providers.
+
+    Supports both the canonical ``providers`` list form and the legacy single
+    ``provider`` string form (normalised to a one-element list at load time).
+
+    Cooldown failure counts are GLOBAL per provider (a provider failing for one
+    role is considered failing for all roles — intentional: a broken backend is
+    broken for everyone). Cooldown only has effect for roles with ≥2 providers.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    providers: list[str] = Field(default_factory=list)
     system_prompt_file: str | None = None
     default_timeout: int | None = None
     permissions: str = "read_only"
     output_format: str = "report"
     max_concurrency: int | None = None
     retry_policy: str = "standard"
+    cooldown: Cooldown = Field(default_factory=Cooldown)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise_provider(cls, data: object) -> object:
+        """Normalise legacy ``provider`` string into ``providers`` list.
+
+        Accepts:
+        - ``providers: [...]`` list form (canonical)
+        - ``provider: "name"`` string form (legacy, normalised to list)
+
+        Raises:
+            ValueError: If both are given, neither is given, provider is not
+                        a non-empty str, or providers is not a non-empty list.
+        """
+        if not isinstance(data, dict):
+            return data
+        has_provider = "provider" in data
+        has_providers = "providers" in data
+        if has_provider and has_providers:
+            raise ValueError("specify either 'provider' or 'providers', not both")
+        if has_provider:
+            val = data.pop("provider")
+            if not isinstance(val, str) or not val:
+                raise ValueError("'provider' must be a non-empty string")
+            data["providers"] = [val]
+        if not data.get("providers"):
+            raise ValueError(
+                "role requires either 'provider' (string) or 'providers' (list)"
+            )
+        providers_val = data["providers"]
+        if not isinstance(providers_val, list) or len(providers_val) == 0:
+            raise ValueError("'providers' must be a non-empty list")
+        return data
 
 
 class Project(BaseModel):
@@ -133,18 +194,77 @@ class Config(BaseModel):
     budget: Budget = Field(default_factory=Budget)
 
     def resolve_provider_for_role(self, role: str) -> str:
-        """Resolve the provider name for a given role."""
+        """Resolve the primary (first) provider name for a given role.
+
+        This is a backward-compatible shim. New code should call
+        ``resolve_providers_for_role`` to obtain the full ordered list.
+
+        Args:
+            role: Role name.
+
+        Returns:
+            The primary provider name (first entry in providers list).
+
+        Raises:
+            ConfigError: If role is unknown.
+        """
         if role not in self.roles:
             raise ConfigError(f"unknown role: {role}")
-        return self.roles[role].provider
+        return self.roles[role].providers[0]
+
+    def resolve_providers_for_role(self, role: str) -> list[str]:
+        """Resolve the full ordered providers list for a given role.
+
+        Args:
+            role: Role name.
+
+        Returns:
+            Ordered list of provider names for the role.
+
+        Raises:
+            ConfigError: If role is unknown.
+        """
+        if role not in self.roles:
+            raise ConfigError(f"unknown role: {role}")
+        return self.roles[role].providers
 
     def validate_refs(self) -> None:
-        """Validate that all roles reference existing providers and all projects reference existing roles."""
+        """Validate cross-references between roles, providers, and projects.
+
+        Checks:
+        - All providers in each role's providers list exist.
+        - Role permissions value is valid.
+        - All roles referenced by projects exist.
+        - Provider type-specific required fields are present.
+        - Provider supports list contains only valid permission levels.
+        - auth_env is reachable via env_profile (when both are set).
+        - For roles with non-empty provider supports, role permissions are covered.
+        - Schedule ids are unique and reference existing projects/roles.
+        """
         for rname, role in self.roles.items():
-            if role.provider not in self.providers:
+            # Validate permissions field against the canonical set.
+            if role.permissions not in PERMISSION_LEVELS:
                 raise ConfigError(
-                    f"role '{rname}' references unknown provider '{role.provider}'"
+                    f"role '{rname}' has invalid permissions '{role.permissions}'; "
+                    f"valid values: {sorted(PERMISSION_LEVELS)}"
                 )
+            for pname in role.providers:
+                if pname not in self.providers:
+                    raise ConfigError(
+                        f"role '{rname}' references unknown provider '{pname}'"
+                    )
+            # Capability check at load time: for each provider in the role's list
+            # that declares a non-empty supports list, the role's permissions must
+            # be covered.
+            for pname in role.providers:
+                prov = self.providers[pname]
+                if prov.supports and role.permissions not in prov.supports:
+                    supports_str = format_supports(prov.supports)
+                    raise ConfigError(
+                        f"provider '{pname}' does not support permission "
+                        f"'{role.permissions}' required by role '{rname}' "
+                        f"(supports: {supports_str})"
+                    )
         for pname, project in self.projects.items():
             for r in project.allowed_roles:
                 if r not in self.roles:

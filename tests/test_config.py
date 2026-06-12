@@ -9,7 +9,7 @@ def test_loads_dev_safe_example():
     cfg = load_config(EXAMPLE)
     assert "echo_cli" in cfg.providers
     assert cfg.providers["echo_cli"].executable == "cat"
-    assert cfg.roles["planner"].provider == "echo_cli"
+    assert cfg.roles["planner"].providers == ["echo_cli"]
     assert cfg.worker.global_concurrency == 3
     assert cfg.doctor.min_ok_providers == 1
 
@@ -357,3 +357,253 @@ def test_auth_env_without_env_profile_is_allowed(tmp_path):
     cfg = load_config(str(c))
     assert cfg.providers["echo"].auth_env == "ON_DISK_OR_AMBIENT_KEY"
     assert cfg.providers["echo"].env_profile is None
+
+
+# ---------------------------------------------------------------------------
+# Tier 2: Role.permissions validation
+# ---------------------------------------------------------------------------
+
+def test_invalid_permissions_raises_config_error(tmp_path):
+    """Role with invalid permissions value must raise ConfigError."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  bad_role: {provider: echo, permissions: superadmin}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError, match="superadmin"):
+        load_config(str(c))
+
+
+def test_all_four_valid_permissions_accepted(tmp_path):
+    """All four valid permission levels must be accepted without error."""
+    for perm in ("read_only", "worktree_write", "inplace_write", "untrusted"):
+        c = tmp_path / f"cfg_{perm}.yaml"
+        c.write_text(
+            "providers:\n"
+            "  echo: {type: cli, executable: cat, input: stdin}\n"
+            f"roles:\n"
+            f"  r: {{provider: echo, permissions: {perm}}}\n"
+            "worker: {global_concurrency: 1}\n"
+        )
+        cfg = load_config(str(c))
+        assert cfg.roles["r"].permissions == perm
+
+
+# ---------------------------------------------------------------------------
+# Tier 2: Role.providers — canonical list form + legacy normalisation
+# ---------------------------------------------------------------------------
+
+def test_role_provider_str_normalised_to_list(tmp_path):
+    """Legacy 'provider: str' form is normalised to 'providers: [str]'."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r: {provider: echo}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    cfg = load_config(str(c))
+    assert cfg.roles["r"].providers == ["echo"]
+
+
+def test_role_providers_list_passthrough(tmp_path):
+    """'providers: [...]' list form is stored as-is."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r: {providers: [echo]}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    cfg = load_config(str(c))
+    assert cfg.roles["r"].providers == ["echo"]
+
+
+def test_role_both_provider_and_providers_raises(tmp_path):
+    """Specifying both 'provider' and 'providers' must raise ConfigError."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r: {provider: echo, providers: [echo]}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError):
+        load_config(str(c))
+
+
+def test_role_neither_provider_nor_providers_raises(tmp_path):
+    """Omitting both 'provider' and 'providers' must raise ConfigError."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r: {permissions: read_only}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError):
+        load_config(str(c))
+
+
+def test_role_provider_non_str_raises(tmp_path):
+    """'provider' with a non-string value must raise ConfigError."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r: {provider: 42}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError):
+        load_config(str(c))
+
+
+def test_validate_refs_unknown_provider_in_providers_list_raises(tmp_path):
+    """Unknown provider inside providers list must raise ConfigError."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r: {providers: [echo, ghost]}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError, match="ghost"):
+        load_config(str(c))
+
+
+def test_validate_refs_capability_mismatch_non_primary_provider_raises(tmp_path):
+    """Capability mismatch for a non-primary provider in list must raise ConfigError."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "  restricted: {type: cli, executable: cat, input: stdin,"
+        " supports: [read_only]}\n"
+        "roles:\n"
+        "  r: {providers: [echo, restricted], permissions: inplace_write}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError, match="inplace_write"):
+        load_config(str(c))
+
+
+# ---------------------------------------------------------------------------
+# Tier 2: Cooldown model
+# ---------------------------------------------------------------------------
+
+def test_cooldown_defaults(tmp_path):
+    """Role cooldown has correct defaults when not specified."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r: {provider: echo}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    cfg = load_config(str(c))
+    cd = cfg.roles["r"].cooldown
+    assert cd.allowed_fails == 3
+    assert cd.window_seconds == 300
+
+
+def test_cooldown_zero_allowed_fails_rejected(tmp_path):
+    """Cooldown with allowed_fails=0 must raise ConfigError (gt=0)."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r:\n"
+        "    provider: echo\n"
+        "    cooldown: {allowed_fails: 0, window_seconds: 300}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError):
+        load_config(str(c))
+
+
+def test_cooldown_negative_allowed_fails_rejected(tmp_path):
+    """Cooldown with allowed_fails=-1 must raise ConfigError (gt=0)."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r:\n"
+        "    provider: echo\n"
+        "    cooldown: {allowed_fails: -1, window_seconds: 300}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError):
+        load_config(str(c))
+
+
+def test_cooldown_zero_window_seconds_rejected(tmp_path):
+    """Cooldown with window_seconds=0 must raise ConfigError (gt=0)."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r:\n"
+        "    provider: echo\n"
+        "    cooldown: {allowed_fails: 3, window_seconds: 0}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError):
+        load_config(str(c))
+
+
+def test_cooldown_extra_key_rejected(tmp_path):
+    """Cooldown with unknown key must raise ConfigError (extra='forbid')."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r:\n"
+        "    provider: echo\n"
+        "    cooldown: {allowed_fails: 3, window_seconds: 300, unknown_key: bad}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError):
+        load_config(str(c))
+
+
+def test_resolve_providers_for_role_returns_list(tmp_path):
+    """resolve_providers_for_role returns the full ordered provider list."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r: {providers: [echo]}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    cfg = load_config(str(c))
+    assert cfg.resolve_providers_for_role("r") == ["echo"]
+
+
+def test_resolve_providers_for_role_unknown_raises(tmp_path):
+    """resolve_providers_for_role raises ConfigError for unknown role."""
+    c = tmp_path / "cfg.yaml"
+    c.write_text(
+        "providers:\n"
+        "  echo: {type: cli, executable: cat, input: stdin}\n"
+        "roles:\n"
+        "  r: {provider: echo}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    cfg = load_config(str(c))
+    with pytest.raises(ConfigError):
+        cfg.resolve_providers_for_role("ghost")

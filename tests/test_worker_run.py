@@ -51,9 +51,12 @@ def test_run_pending_once_completes_cat_job(herder_home, tmp_path):
     assert "hello from cat" in result  # cat echoed the prompt into the body
     assert done[0]["output_path"] == str(rd / "result.md")
 
-    # exactly one attempt recorded, marked done
+    # exactly one attempt recorded, marked done, with provider populated
     rows = store.conn.execute("SELECT * FROM attempts").fetchall()
     assert len(rows) == 1 and rows[0]["status"] == "done"
+    assert rows[0]["provider"] == "echo_cli", (
+        f"Expected attempt provider='echo_cli', got {rows[0]['provider']!r}"
+    )
 
 
 def test_run_pending_once_empty_queue_returns_zero(herder_home, tmp_path):

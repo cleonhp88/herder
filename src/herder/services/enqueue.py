@@ -89,8 +89,9 @@ def enqueue_job(cfg: Config, store: Store, req: EnqueueRequest) -> EnqueueResult
         ConfigError: If role/project invalid, project root missing, etc.
         BudgetError: If budget caps are exceeded.
     """
-    # Resolve role + project → provider config + permissions
-    r = resolve(cfg, role=req.role, project=req.project)
+    # Resolve role + project → provider config + permissions.
+    # Pass store so that cooldown-aware routing is applied at enqueue time.
+    r = resolve(cfg, role=req.role, project=req.project, store=store)
     prov = cfg.providers[r["provider"]]
 
     # Build base result (shared for dry-run and real enqueue)

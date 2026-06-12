@@ -341,6 +341,7 @@ class Store:
         duration_ms: int | None = None,
         started_at: str | None = None,
         finished_at: str | None = None,
+        provider: str | None = None,
     ) -> None:
         """Record a job attempt in the attempts table.
 
@@ -357,6 +358,7 @@ class Store:
             duration_ms: Optional wall-clock duration in milliseconds.
             started_at: Optional ISO 8601 timestamp when attempt began.
             finished_at: Optional ISO 8601 timestamp when attempt ended.
+            provider: Optional provider name (None for pre-Tier2 history).
         """
         import json as _json
 
@@ -364,8 +366,9 @@ class Store:
         self.conn.execute(
             """INSERT INTO attempts
                (job_id, attempt_no, worker_id, exit_code, status, error_type,
-                stdout_path, stderr_path, usage, duration_ms, started_at, finished_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                stdout_path, stderr_path, usage, duration_ms, started_at, finished_at,
+                provider)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 job_id,
                 attempt_no,
@@ -379,8 +382,35 @@ class Store:
                 duration_ms,
                 started_at or now,
                 finished_at or now,
+                provider,
             ),
         )
+
+    def count_recent_failures(self, provider: str, window_seconds: int) -> int:
+        """Count failed or timed-out attempts for a provider within a recent window.
+
+        Timeouts count toward cooldown: a hanging backend is the most common
+        sickness signal and must accumulate cooldown weight like loud failures.
+
+        Uses a Python-computed threshold to avoid SQLite datetime string format
+        mismatch (isoformat 'T' separator vs SQLite 'space' separator).
+
+        Args:
+            provider: Provider name to filter by.
+            window_seconds: Look-back window in seconds from now.
+
+        Returns:
+            Count of failed/timeout attempts with finished_at >= threshold.
+        """
+        threshold = (
+            datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+        ).isoformat()
+        return self.conn.execute(
+            """SELECT COUNT(*) FROM attempts
+               WHERE provider = ? AND status IN ('failed', 'timeout')
+                 AND finished_at >= ?""",
+            (provider, threshold),
+        ).fetchone()[0]
 
     def request_cancel(self, job_id: str) -> str | None:
         """Request cancellation of a job.
@@ -420,19 +450,30 @@ class Store:
         # All other statuses (done, failed, cancelled, etc.): no-op
         return status
 
-    def requeue(self, job_id: str) -> None:
+    def requeue(self, job_id: str, next_provider: str | None = None) -> None:
         """Put a terminal/failed job back in the queue (manual retry or auto-retry).
 
         Keeps the attempts counter (history preserved in attempts table).
+        When next_provider is given, atomically updates the provider column in
+        the same UPDATE statement (single round-trip).
 
         Args:
             job_id: The job id to requeue.
+            next_provider: Optional new provider name. When None, the existing
+                provider is preserved (e.g. human retry via CLI keeps current provider).
         """
-        self.conn.execute(
-            "UPDATE jobs SET status='pending', error_type=NULL, finished_at=NULL,"
-            " worker_id=NULL, lease_until=NULL WHERE id=?",
-            (job_id,),
-        )
+        if next_provider is not None:
+            self.conn.execute(
+                "UPDATE jobs SET status='pending', error_type=NULL, finished_at=NULL,"
+                " worker_id=NULL, lease_until=NULL, provider=? WHERE id=?",
+                (next_provider, job_id),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE jobs SET status='pending', error_type=NULL, finished_at=NULL,"
+                " worker_id=NULL, lease_until=NULL WHERE id=?",
+                (job_id,),
+            )
 
     def mark_dead(self, job_id: str) -> None:
         """Mark a job as dead (exhausted all retries).

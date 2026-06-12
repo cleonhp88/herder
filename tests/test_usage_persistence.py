@@ -1,4 +1,4 @@
-"""Tests for token usage and duration persistence on attempts (schema v2)."""
+"""Tests for token usage and duration persistence on attempts (schema v2+)."""
 import json
 import sqlite3
 from pathlib import Path
@@ -7,14 +7,14 @@ from datetime import datetime, timezone, timedelta
 import pytest
 
 from herder.db.store import Store
-from herder.db.migrations import SCHEMA_V1, SCHEMA_V2_UPGRADE
+from herder.db.migrations import SCHEMA_V1, SCHEMA_V2_UPGRADE, CURRENT_SCHEMA_VERSION
 
 
-def test_fresh_db_is_v2(herder_home):
-    """A fresh database should be created at schema v2."""
+def test_fresh_db_is_current_version(herder_home):
+    """A fresh database should be created at the current schema version."""
     store = Store.open()
     version = store.conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version == 2
+    assert version == CURRENT_SCHEMA_VERSION
 
 
 def test_attempts_has_duration_ms_and_usage(herder_home):
@@ -25,8 +25,8 @@ def test_attempts_has_duration_ms_and_usage(herder_home):
     assert "usage" in cols, "attempts table missing usage column"
 
 
-def test_v1_db_upgrades_to_v2(herder_home):
-    """An existing v1 database should upgrade cleanly to v2 without data loss."""
+def test_v1_db_upgrades_to_current(herder_home):
+    """An existing v1 database should upgrade cleanly to current schema without data loss."""
     # 1. Build a v1 database manually
     db_path = Path(herder_home) / "herder.db"
     conn = sqlite3.connect(str(db_path))
@@ -51,10 +51,12 @@ def test_v1_db_upgrades_to_v2(herder_home):
     conn.commit()
     conn.close()
 
-    # 3. Open via Store → should migrate to v2
+    # 3. Open via Store → should migrate to current schema version
     store = Store.open()
     version = store.conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version == 2, f"Expected schema v2 after migration, got v{version}"
+    assert version == CURRENT_SCHEMA_VERSION, (
+        f"Expected schema v{CURRENT_SCHEMA_VERSION} after migration, got v{version}"
+    )
 
     # 4. Verify old data is still there
     job = store.get_job("job_v1")

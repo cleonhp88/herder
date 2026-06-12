@@ -123,6 +123,7 @@ def execute_job(cfg: Config, store: Store, job, worker_id: str) -> str:
         duration_ms=duration_ms,
         started_at=res.started_at.isoformat() if res.started_at else None,
         finished_at=res.finished_at.isoformat() if res.finished_at else None,
+        provider=job["provider"],
     )
 
     # Capture worktree diff if applicable

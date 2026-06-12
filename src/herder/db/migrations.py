@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sqlite3
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -109,6 +109,11 @@ ALTER TABLE attempts ADD COLUMN duration_ms INTEGER;
 ALTER TABLE jobs ADD COLUMN total_cost REAL;
 """
 
+SCHEMA_V3_UPGRADE = """
+ALTER TABLE attempts ADD COLUMN provider TEXT;
+CREATE INDEX IF NOT EXISTS idx_attempts_provider_finished ON attempts(provider, finished_at, status);
+"""
+
 
 class StoreError(Exception):
     """Base exception for store and migration errors."""
@@ -148,6 +153,12 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.executescript(SCHEMA_V2_UPGRADE)
         conn.execute("PRAGMA user_version = 2")
         version = 2
+
+    if version == 2:
+        # Upgrade v2 → v3: add provider column to attempts for Tier 2 routing
+        conn.executescript(SCHEMA_V3_UPGRADE)
+        conn.execute("PRAGMA user_version = 3")
+        version = 3
 
     if version > CURRENT_SCHEMA_VERSION:
         # Database is newer than this binary

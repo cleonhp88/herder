@@ -131,3 +131,98 @@ def test_resolve_permission_not_in_supports_raises():
 def test_perm_keys_match_permission_levels():
     """_PERM keys must exactly equal PERMISSION_LEVELS — guards silent privilege drift."""
     assert set(_PERM.keys()) == PERMISSION_LEVELS
+
+
+# ---------------------------------------------------------------------------
+# Tier 2: resolve() with store= parameter — cooldown-aware routing
+# ---------------------------------------------------------------------------
+
+def _cfg_two_providers(perm: str = "read_only") -> Config:
+    """Build a Config with two providers and a two-provider role."""
+    return Config(**{
+        "providers": {
+            "primary": {"type": "cli", "executable": "cat", "input": "stdin"},
+            "secondary": {"type": "cli", "executable": "cat", "input": "stdin"},
+        },
+        "roles": {
+            "r": {
+                "providers": ["primary", "secondary"],
+                "permissions": perm,
+                "cooldown": {"allowed_fails": 3, "window_seconds": 300},
+            }
+        },
+        "projects": {"p": {"root": "/tmp/x", "allowed_roles": ["r"]}},
+        "worker": {"global_concurrency": 1},
+    })
+
+
+def test_resolve_without_store_uses_primary():
+    """resolve(store=None) falls back to primary provider (backward compat)."""
+    cfg = _cfg_two_providers()
+    r = resolve(cfg, role="r", project="p")
+    assert r["provider"] == "primary"
+
+
+def test_resolve_with_store_no_failures_uses_primary(herder_home):
+    """resolve(store=...) with no failures returns the primary provider."""
+    from herder.db.store import Store
+
+    cfg = _cfg_two_providers()
+    store = Store.open()
+    r = resolve(cfg, role="r", project="p", store=store)
+    assert r["provider"] == "primary"
+
+
+def test_resolve_with_store_cooling_primary_uses_secondary(herder_home):
+    """resolve(store=...) skips a cooling primary and returns secondary."""
+    from datetime import datetime, timezone
+    from herder.db.store import Store
+
+    cfg = _cfg_two_providers()
+    store = Store.open()
+
+    # Seed a minimal job so we can attach attempts to it.
+    store.enqueue(
+        id="j1",
+        kind="test",
+        role="r",
+        provider="primary",
+        project=None,
+        cwd="/tmp/x",
+        workspace_mode="readonly",
+        permissions="{}",
+        status="done",
+        prompt_path="/tmp/x/p.md",
+        prompt_hash="h",
+        run_dir="/tmp/x",
+    )
+    now_iso = datetime.now(timezone.utc).isoformat()
+    # 3 failures within window → primary is cooling (allowed_fails=3)
+    for attempt_no in range(1, 4):
+        store.record_attempt(
+            job_id="j1",
+            attempt_no=attempt_no,
+            worker_id="w",
+            exit_code=1,
+            status="failed",
+            provider="primary",
+            finished_at=now_iso,
+        )
+
+    r = resolve(cfg, role="r", project="p", store=store)
+    assert r["provider"] == "secondary"
+
+
+def test_resolve_single_provider_with_store_uses_primary(herder_home):
+    """resolve(store=...) with a single-provider role always returns that provider."""
+    from herder.db.store import Store
+
+    cfg = Config(**{
+        "providers": {"echo": {"type": "cli", "executable": "cat", "input": "stdin"}},
+        "roles": {"r": {"provider": "echo", "permissions": "read_only"}},
+        "projects": {"p": {"root": "/tmp/x", "allowed_roles": ["r"]}},
+        "worker": {"global_concurrency": 1},
+    })
+    store = Store.open()
+    r = resolve(cfg, role="r", project="p", store=store)
+    assert r["provider"] == "echo"

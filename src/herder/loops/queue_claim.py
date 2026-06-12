@@ -10,6 +10,7 @@ from herder.config import Config
 from herder.db.store import Store
 from herder.errors import is_retryable
 from herder.loops.supervisor import execute_job
+from herder.routing import select_provider
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,22 @@ def _process_claimed(cfg: Config, store: Store, job: sqlite3.Row, worker_id: str
                 is_retryable(fresh["error_type"])
                 and fresh["attempts"] < fresh["max_retries"]
             ):
-                store.requeue(job["id"])
+                # Advance-on-requeue: when the role has multiple
+                # providers, select the next provider respecting cooldown state.
+                # Guard: role may be None (ad-hoc jobs have no role).
+                role_name = fresh["role"]
+                role_obj = cfg.roles.get(role_name) if role_name else None
+                if role_obj is not None and len(role_obj.providers) > 1:
+                    next_p = select_provider(
+                        role_obj.providers,
+                        fresh["provider"],
+                        role_obj.cooldown,
+                        store,
+                    )
+                    store.requeue(job["id"], next_provider=next_p)
+                else:
+                    # Legacy / single-provider: keep current provider.
+                    store.requeue(job["id"])
             elif fresh["attempts"] >= fresh["max_retries"]:
                 store.mark_dead(job["id"])
     except Exception as e:  # isolate poison jobs — never let one kill the pass

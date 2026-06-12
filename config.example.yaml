@@ -19,11 +19,18 @@ providers:
 
 roles:
   planner:
-    provider: echo_cli
+    # New canonical form: list of providers in priority order (Tier 2 routing).
+    providers: [echo_cli]
     permissions: read_only
     output_format: report
     retry_policy: standard
+    # Cooldown: skip provider after N failures in the given window (seconds).
+    # Only takes effect when the role has ≥2 providers.
+    # cooldown:
+    #   allowed_fails: 3
+    #   window_seconds: 300
   cheap:
+    # Legacy form still accepted — normalised to providers: [echo_cli] at load time.
     provider: echo_cli
     permissions: read_only
     output_format: report

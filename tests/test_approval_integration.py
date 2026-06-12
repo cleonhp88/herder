@@ -84,7 +84,7 @@ def test_pending_job_runs_immediately(herder_home, tmp_path):
         "providers:\n"
         "  echo_cli: {type: cli, executable: cat, args: [], input: stdin, timeout: 10}\n"
         "roles:\n"
-        "  viewer: {provider: echo_cli, permissions: readonly}\n"
+        "  viewer: {provider: echo_cli, permissions: read_only}\n"
         f"projects:\n"
         f"  p: {{root: '{proj}', default_workspace_mode: readonly, allowed_roles: [viewer]}}\n"
         "worker: {global_concurrency: 1, lease_seconds: 3600}\n"

@@ -32,14 +32,14 @@ supervisor able to reject impossible jobs before spending a run.
 The point: a flaky or rate-limited backend must not stall the queue or fail a job
 that another backend could serve.
 
-- [ ] **Role → ordered backend list (fallback).** Today `Role.provider` is a single
+- [x] **Role → ordered backend list (fallback).** Today `Role.provider` is a single
   string. Allow a list; the worker walks it by `order` on retryable failure.
   Source: LiteLLM `fallbacks` + OpenRouter model-fallback arrays.
-- [ ] **Typed retry by error class.** Map CLI exit code + stderr signature →
+- [x] **Typed retry by error class.** Map CLI exit code + stderr signature →
   `retryable` vs `fatal`. Don't burn retries on missing-API-key / auth errors; do
   retry transient (timeout, rate limit). Makes the existing `retry_policy` label
   real. *Risk: medium — CLI error taxonomy is fuzzier than HTTP status codes.*
-- [ ] **Per-backend cooldown + health isolation.** `allowed_fails` per minute →
+- [x] **Per-backend cooldown + health isolation.** `allowed_fails` per minute →
   `cooldown_time`; sideline a failing backend without poisoning other roles.
   Source: LiteLLM cooldown model.
 

@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 from herder.config import Config, ConfigError, PERMISSION_LEVELS, format_supports
+
+if TYPE_CHECKING:
+    from herder.db.store import Store
 
 
 _PERM = {
@@ -38,13 +42,23 @@ _PERM = {
 }
 
 
-def resolve(cfg: Config, *, role: str, project: str) -> dict:
+def resolve(cfg: Config, *, role: str, project: str, store: "Store | None" = None) -> dict:
     """Resolve provider and permissions for a given role and project.
+
+    When ``store`` is provided and the role has more than one provider, the
+    cooldown-aware ``select_provider`` function is used to pick the best
+    available provider at enqueue time.  When ``store`` is ``None`` (backward-
+    compatible default), the primary provider (first in the list) is used
+    unconditionally — existing callers without a DB handle keep working.
+
+    Every production caller MUST pass ``store`` so that cooldown routing is
+    applied at enqueue; omitting it disables cooldown (test/dry-run only).
 
     Args:
         cfg: Loaded configuration.
         role: Role name.
         project: Project name.
+        store: Optional SQLite store.  Required for cooldown routing in production.
 
     Returns:
         Dictionary with keys: provider, cwd, workspace_mode, permissions.
@@ -68,12 +82,23 @@ def resolve(cfg: Config, *, role: str, project: str) -> dict:
             raise ConfigError(f"inplace not allowed for project '{project}'")
         perms["require_confirm"] = True
 
-    provider_name = cfg.resolve_provider_for_role(role)
+    # Select provider: cooldown-aware when store is available and role has
+    # multiple providers; falls back to the primary provider otherwise.
+    if store is not None and len(role_obj.providers) > 1:
+        from herder.routing import select_provider
+        provider_name = select_provider(
+            role_obj.providers, None, role_obj.cooldown, store
+        )
+    else:
+        provider_name = cfg.resolve_provider_for_role(role)
+
     provider_obj = cfg.providers[provider_name]
 
     # Pre-call capability check: if the provider declares a non-empty supports
     # list, the role's permission level must be one of the declared values.
     # Empty supports means the provider imposes no restriction.
+    # All providers in the list were validated at load time by validate_refs(),
+    # so a runtime check on the selected provider is consistent.
     if provider_obj.supports and role_obj.permissions not in provider_obj.supports:
         supports_str = format_supports(provider_obj.supports)
         raise ConfigError(
