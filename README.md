@@ -109,6 +109,13 @@ See `docs/architecture.md` for detailed security tiers and trust model.
 - **No agent-to-agent orchestration.** Jobs run independently in parallel. For workflows / DAGs, orchestrate from your frontend.
 - **No remote execution.** Herder is local-only. For distributed workers, run Herder instances on each machine.
 
+## Direction
+
+Herder aims to be a hub: plug in any vendor's CLI agent and run it. The strategy —
+generic-CLI core plus an optional ACP adapter — is recorded in
+[ADR 0001](docs/adr/0001-agent-hub-strategy.md), with the staged plan in
+[docs/roadmap.md](docs/roadmap.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, discipline (TDD, tests pass before PR), and how to add a provider.
