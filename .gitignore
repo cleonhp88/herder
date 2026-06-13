@@ -14,3 +14,7 @@ config.yaml
 
 # Herder runtime state
 .herder/
+
+# Eval run artifacts (keep the dir, ignore generated reports)
+evals/outputs/*
+!evals/outputs/.gitkeep
