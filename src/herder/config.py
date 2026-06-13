@@ -28,6 +28,10 @@ class Provider(BaseModel):
     sdk: str | None = None
     model: str | None = None
     base_url: str | None = None
+    # Only meaningful for type="ollama" with reasoning models (e.g. gpt-oss).
+    # None = omit from request (let ollama default); False = disable thinking;
+    # True = enable thinking explicitly.
+    think: bool | None = None
     timeout: int = 1800
     max_concurrency: int = 1
     parser: str = "text"

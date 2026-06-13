@@ -173,6 +173,51 @@ def test_provider_manifest_fields_defaults(tmp_path):
     assert p.auth_env is None
 
 
+# ---------------------------------------------------------------------------
+# Provider.think — ollama reasoning toggle (None = omit key)
+# ---------------------------------------------------------------------------
+
+def test_provider_think_defaults_none(tmp_path):
+    """think defaults to None when absent (so the key is omitted from requests)."""
+    cfg = load_config(_minimal_cfg(tmp_path))
+    assert cfg.providers["echo"].think is None
+
+
+def test_provider_think_parses_bool(tmp_path):
+    """think parses both boolean values from YAML."""
+    for value in (True, False):
+        c = tmp_path / f"think_{value}.yaml"
+        c.write_text(
+            "providers:\n"
+            "  ol:\n"
+            "    type: ollama\n"
+            "    base_url: http://localhost:11434\n"
+            "    model: gpt-oss\n"
+            f"    think: {str(value).lower()}\n"
+            "roles: {planner: {provider: ol}}\n"
+            "worker: {global_concurrency: 1}\n"
+        )
+        cfg = load_config(str(c))
+        assert cfg.providers["ol"].think is value
+
+
+def test_provider_think_rejects_non_bool(tmp_path):
+    """think with a non-boolean value must raise ConfigError."""
+    c = tmp_path / "think_bad.yaml"
+    c.write_text(
+        "providers:\n"
+        "  ol:\n"
+        "    type: ollama\n"
+        "    base_url: http://localhost:11434\n"
+        "    model: gpt-oss\n"
+        "    think: maybe\n"
+        "roles: {planner: {provider: ol}}\n"
+        "worker: {global_concurrency: 1}\n"
+    )
+    with pytest.raises(ConfigError):
+        load_config(str(c))
+
+
 def test_provider_manifest_fields_parsed(tmp_path):
     """Manifest fields are correctly parsed when present in YAML."""
     c = tmp_path / "cfg.yaml"

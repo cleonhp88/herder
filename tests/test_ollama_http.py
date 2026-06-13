@@ -160,6 +160,65 @@ def test_ollama_request_format(monkeypatch):
     assert payload["stream"] is False
 
 
+def _capture_payload(monkeypatch) -> list:
+    """Patch urlopen to capture requests and return the captured-request list."""
+    captured_req: list = []
+
+    def capturing_urlopen(req, timeout):
+        captured_req.append(req)
+        return FakeResponse(b'{"response":"OK"}')
+
+    monkeypatch.setattr(ollama_http.urllib.request, "urlopen", capturing_urlopen)
+    return captured_req
+
+
+def test_ollama_payload_includes_think_false(monkeypatch):
+    """think=False must be sent as an explicit "think": false in the payload."""
+    captured_req = _capture_payload(monkeypatch)
+
+    p = Provider(
+        type="ollama",
+        base_url="http://localhost:11434",
+        model="gpt-oss",
+        think=False,
+    )
+    ollama_http.run(p, "test", timeout=5)
+
+    payload = json.loads(captured_req[0].data.decode())
+    assert payload["think"] is False
+
+
+def test_ollama_payload_includes_think_true(monkeypatch):
+    """think=True must be sent as an explicit "think": true in the payload."""
+    captured_req = _capture_payload(monkeypatch)
+
+    p = Provider(
+        type="ollama",
+        base_url="http://localhost:11434",
+        model="gpt-oss",
+        think=True,
+    )
+    ollama_http.run(p, "test", timeout=5)
+
+    payload = json.loads(captured_req[0].data.decode())
+    assert payload["think"] is True
+
+
+def test_ollama_payload_omits_think_when_none(monkeypatch):
+    """think=None (default) must OMIT the key entirely — key absence, not a falsy value."""
+    captured_req = _capture_payload(monkeypatch)
+
+    p = Provider(
+        type="ollama",
+        base_url="http://localhost:11434",
+        model="testmodel",
+    )
+    ollama_http.run(p, "test", timeout=5)
+
+    payload = json.loads(captured_req[0].data.decode())
+    assert "think" not in payload
+
+
 def test_ollama_base_url_trailing_slash_handled(monkeypatch):
     """Ollama provider should handle base_url with trailing slash."""
 

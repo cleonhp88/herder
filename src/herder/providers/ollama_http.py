@@ -26,11 +26,14 @@ def run(provider: Provider, prompt: str, *, timeout: int) -> Result:
 
     # Build request
     url = (provider.base_url or "").rstrip("/") + "/api/generate"
-    payload = json.dumps({
+    body: dict = {
         "model": provider.model,
         "prompt": prompt,
         "stream": False,
-    }).encode()
+    }
+    if provider.think is not None:
+        body["think"] = provider.think
+    payload = json.dumps(body).encode()
     req = urllib.request.Request(
         url,
         data=payload,
