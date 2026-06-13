@@ -162,11 +162,21 @@ providers:
   # NOT a free Builder ID (free Builder ID cannot chat).
   kiro_cli:     { type: cli, executable: kiro-cli, args: ["chat", "--no-interactive", "--trust-tools=", "--effort", "low"], input: arg, timeout: 90, parser: text }
 
-  # Kimi Code CLI (Moonshot) — needs MOONSHOT_API_KEY
-  kimi_cli:     { type: cli, executable: kimi, args: ["--print"], input: arg, env_profile: kimi, timeout: 120, parser: text }
+  # Cline CLI — install: npm i -g cline  (official, Cline Bot Inc). Binary: cline.
+  # Install + headless VERIFIED 2026-06-13: `cline --json --auto-approve true "<prompt>"`
+  # (positional prompt or stdin; --json emits NDJSON). Auth: run `cline auth` ONCE
+  # (BYO provider key — Anthropic/OpenAI/OpenRouter/…); headless then needs no browser.
+  # The 2.0 launch promo'd a limited-time free Kimi K2.5 / MiniMax M2.5 via a Cline
+  # account — verify it still applies at login; the base auth is BYO-key.
+  cline_cli:    { type: cli, executable: cline, args: ["--json", "--auto-approve", "true"], input: arg, timeout: 300, parser: text }
 
-  # Cline — open-source; confirm its non-interactive flag from `cline --help`
-  cline_cli:    { type: cli, executable: cline, args: ["--non-interactive"], input: arg, timeout: 180, parser: text }
+  # Kimi Code CLI — install: npm i -g @moonshot-ai/kimi-code  (official, MoonshotAI). Binary: kimi.
+  # Headless is NEW (v0.14.x, PR #579): the prompt is the VALUE of --goal, so --goal
+  # must be the LAST arg (input:arg appends the prompt right after it).
+  # Auth: `kimi` → /login → Kimi OAuth (free limited quota) OR a Moonshot API key.
+  # [UNVERIFIED] whether headless runs under the OAuth FREE quota — the API-key path
+  # is the reliable headless one. Smoke-test before relying on the free tier here.
+  kimi_cli:     { type: cli, executable: kimi, args: ["headless", "run", "--output-format", "json", "--goal"], input: arg, env_profile: kimi, timeout: 120, parser: text }
 
 env_profiles:
   kimi: { allow_env: [MOONSHOT_API_KEY] }
