@@ -171,12 +171,15 @@ providers:
   cline_cli:    { type: cli, executable: cline, args: ["--json", "--auto-approve", "true"], input: arg, timeout: 300, parser: text }
 
   # Kimi Code CLI — install: npm i -g @moonshot-ai/kimi-code  (official, MoonshotAI). Binary: kimi.
-  # Headless is NEW (v0.14.x, PR #579): the prompt is the VALUE of --goal, so --goal
-  # must be the LAST arg (input:arg appends the prompt right after it).
+  # Verified against the installed binary v0.14.2 (2026-06-13): the non-interactive
+  # flag is `-p/--prompt <prompt>` ("Run one prompt non-interactively and print the
+  # response"), NOT the `headless run --goal` from PR #579 (not in this release).
+  # The prompt is the VALUE of -p, so -p must be the LAST arg (input:arg appends it).
+  # --output-format text|stream-json (default text).
   # Auth: `kimi` → /login → Kimi OAuth (free limited quota) OR a Moonshot API key.
-  # [UNVERIFIED] whether headless runs under the OAuth FREE quota — the API-key path
-  # is the reliable headless one. Smoke-test before relying on the free tier here.
-  kimi_cli:     { type: cli, executable: kimi, args: ["headless", "run", "--output-format", "json", "--goal"], input: arg, env_profile: kimi, timeout: 120, parser: text }
+  # [UNVERIFIED] whether -p runs under the OAuth FREE quota — API key is the reliable
+  # headless path. Smoke-test before relying on the free tier here.
+  kimi_cli:     { type: cli, executable: kimi, args: ["-p"], input: arg, env_profile: kimi, timeout: 120, parser: text }
 
 env_profiles:
   kimi: { allow_env: [MOONSHOT_API_KEY] }
