@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 from herder.cli import main
 from herder.db.store import Store
@@ -97,21 +98,38 @@ def test_empty_store(herder_home):
 
 
 def test_seven_day_volume(herder_home):
-    """Test that 7-day job volume is computed correctly."""
+    """Test that 7-day job volume is computed correctly.
+
+    Dates are seeded relative to now (UTC) so the test never rots: the prior
+    hard-coded version silently fell out of the trailing-7-day window as time
+    passed. The window in stats.py is ``date(created_at) >= date('now','-6 days')``
+    (today + previous 6 days). We use offsets 0/1/5 (well inside, immune to a
+    midnight boundary skew) and 10 (well outside), and assert against date keys
+    derived from the SAME ``now`` the seeds were built from.
+    """
+    now = datetime.now(timezone.utc)
+
+    def at(days_ago: int, hour: int = 0) -> str:
+        return (now - timedelta(days=days_ago)).replace(
+            hour=hour, minute=0, second=0, microsecond=0
+        ).isoformat()
+
+    def key(days_ago: int) -> str:
+        return (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+
     s = Store.open()
-    _job(s, "a1", "claude", "done", "2026-06-10T00:00:00+00:00")
-    _job(s, "a2", "claude", "done", "2026-06-10T10:00:00+00:00")
-    _job(s, "b1", "claude", "done", "2026-06-09T00:00:00+00:00")
-    _job(s, "c1", "claude", "done", "2026-06-05T00:00:00+00:00")
-    _job(s, "old", "claude", "done", "2026-05-31T00:00:00+00:00")
+    _job(s, "a1", "claude", "done", at(0, 0))
+    _job(s, "a2", "claude", "done", at(0, 10))
+    _job(s, "b1", "claude", "done", at(1))
+    _job(s, "c1", "claude", "done", at(5))
+    _job(s, "old", "claude", "done", at(10))
 
     rep = compute_stats(s)
-    # Last 7 days should include 2026-06-10, 2026-06-09, 2026-06-05
-    # but NOT 2026-05-31 (older than 7 days)
-    assert rep.jobs_last_7d.get("2026-06-10") == 2
-    assert rep.jobs_last_7d.get("2026-06-09") == 1
-    assert rep.jobs_last_7d.get("2026-06-05") == 1
-    assert "2026-05-31" not in rep.jobs_last_7d
+    # Within window: today (×2), yesterday, 5 days ago. NOT 10 days ago.
+    assert rep.jobs_last_7d.get(key(0)) == 2
+    assert rep.jobs_last_7d.get(key(1)) == 1
+    assert rep.jobs_last_7d.get(key(5)) == 1
+    assert key(10) not in rep.jobs_last_7d
 
 
 def test_percentile_calculation_with_no_durations(herder_home):
