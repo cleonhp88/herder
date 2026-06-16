@@ -1,0 +1,42 @@
+[project]
+name = "herder"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "croniter>=6.2.2",
+    "pydantic>=2.13.4",
+    "python-ulid>=3.1.0",
+    "pyyaml>=6.0.3",
+    "ruamel.yaml>=0.18",
+]
+
+[project.optional-dependencies]
+acp = ["agent-client-protocol>=0.10.1"]
+
+[project.scripts]
+herder = "herder.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::pytest.PytestUnknownMarkWarning"]
+markers = [
+    "integration: marks tests as slow wall-clock integration tests (deselect with '-m not integration')",
+]
+
+[tool.uv_build]
+include = [
+    "src/herder/recipes/*.yaml",
+    "src/herder/config.example.yaml",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.17,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

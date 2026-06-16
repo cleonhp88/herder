@@ -1,0 +1,16 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Operator's real config (never commit — may contain real paths/secrets)
+config.yaml
+
+# Herder runtime state
+.herder/

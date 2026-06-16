@@ -1,0 +1,57 @@
+providers:
+  echo_cli:
+    type: cli
+    executable: cat
+    args: []
+    input: stdin
+    timeout: 30
+    max_concurrency: 2
+    parser: text
+    # --- Capability manifest (optional, used by doctor and registry) ---
+    # output_format: text       # One of: text, json, stream-json. Default: text.
+    # supports: []              # Permission levels this provider can serve.
+    #                           # Empty list (default) = unrestricted.
+    #                           # Valid values: read_only, worktree_write, inplace_write, untrusted.
+    # cost_hint: null           # Free-form cost label shown by doctor, e.g. "$0", "plan", "metered".
+    # auth_env: null            # Name of the env var holding this provider's credential.
+    #                           # None = on-disk or no auth required.
+    #                           # When env_profile is also set, auth_env must appear in allow_env.
+
+roles:
+  planner:
+    # New canonical form: list of providers in priority order (Tier 2 routing).
+    providers: [echo_cli]
+    permissions: read_only
+    output_format: report
+    retry_policy: standard
+    # Cooldown: skip provider after N failures in the given window (seconds).
+    # Only takes effect when the role has ≥2 providers.
+    # cooldown:
+    #   allowed_fails: 3
+    #   window_seconds: 300
+  cheap:
+    # Legacy form still accepted — normalised to providers: [echo_cli] at load time.
+    provider: echo_cli
+    permissions: read_only
+    output_format: report
+    retry_policy: standard
+
+projects:
+  example_project:
+    root: "/path/to/your/project"
+    default_workspace_mode: readonly
+    allowed_roles: [planner, cheap]
+    allow_inplace: false
+
+worker:
+  global_concurrency: 3
+  heartbeat_interval: 15
+  lease_seconds: 3600
+  timezone: "UTC"
+
+doctor:
+  min_ok_providers: 1
+
+env_profiles:
+  echo_cli:
+    allow_env: []

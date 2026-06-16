@@ -1,0 +1,11 @@
+name: kiro
+detect: "command -v kiro"
+install: "curl -fsSL https://kiro.dev/install | sh"
+login: "kiro login"
+verify: "kiro --version"
+provider:
+  type: cli
+  executable: kiro
+  args: ["chat", "--no-interactive"]
+  parser: text
+default_role: kiro

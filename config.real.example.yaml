@@ -1,0 +1,86 @@
+providers:
+  claude_cli:
+    type: cli
+    executable: claude
+    args: ["-p"]
+    input: stdin
+    env_profile: claude
+    timeout: 1800
+    max_concurrency: 1
+    parser: text
+  codex_cli:
+    type: cli
+    executable: codex
+    args: ["exec","--json"]
+    input: stdin
+    env_profile: codex
+    timeout: 1800
+    max_concurrency: 1
+    parser: codex_exec_json
+  gemini_cli:
+    type: cli
+    executable: gemini
+    args: ["-p"]
+    input: arg_or_stdin
+    env_profile: gemini
+    timeout: 1200
+    max_concurrency: 2
+    parser: text
+  ollama_qwen:
+    type: cli
+    executable: ollama
+    args: ["run","qwen3"]
+    input: stdin
+    timeout: 600
+    max_concurrency: 2
+    parser: text
+
+roles:
+  planner:
+    provider: claude_cli
+    permissions: read_only
+    output_format: report
+    retry_policy: standard
+  coder:
+    provider: codex_cli
+    permissions: worktree_write
+    output_format: patch_or_report
+    retry_policy: coding
+  reviewer:
+    provider: gemini_cli
+    permissions: read_only
+    output_format: report
+    retry_policy: standard
+  cheap:
+    provider: ollama_qwen
+    permissions: read_only
+    output_format: report
+    retry_policy: standard
+
+projects:
+  example_project:
+    root: "/path/to/your/project"
+    default_workspace_mode: worktree
+    allowed_roles: [planner, coder, reviewer, cheap]
+    allow_inplace: false
+
+worker:
+  global_concurrency: 3
+  heartbeat_interval: 15
+  lease_seconds: 3600
+  timezone: "UTC"
+
+doctor:
+  min_ok_providers: 3
+
+env_profiles:
+  claude:
+    allow_env: []
+  codex:
+    allow_env: []
+  gemini:
+    allow_env: []
+  commandcode:
+    allow_env: [COMMAND_CODE_API_KEY]
+  copilot:
+    allow_env: [GH_TOKEN, GITHUB_TOKEN]
